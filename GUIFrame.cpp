@@ -15,6 +15,9 @@ module;
 #include <utility>
 #include <cmath>
 #include <algorithm>
+#include <QPainter>
+#include <QCoreApplication>
+#include <QFileInfo>
 
 export module GUIFrame;
 
@@ -68,11 +71,28 @@ private:
     QPoint dragPosition;
     bool isDragging = false;
 
+    // Background
+    QPixmap backgroundPixmap;
+    bool backgroundLoaded = false;
+
+    // Color cache (linked to settings)
+    QString headingColor;
+    QString totalTimerIdleColor;
+    QString totalTimerActiveColor;
+    QString segmentTimerIdleColor;
+    QString segmentTimerActiveColor;
+    QString splitsMapsColor;
+    QString splitsTimesColor;
+    QString totalLabelColor;
+    QString totalValueColor;
+
 public:
     GridWidget(QWidget* parent = nullptr) : QWidget(parent) {
         // Set frameless window hint to remove title bar and borders
         setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
-        setAttribute(Qt::WA_TranslucentBackground, false);
+        setAttribute(Qt::WA_TranslucentBackground, true);
+        setAttribute(Qt::WA_NoSystemBackground, true);
+        setAutoFillBackground(false);
 
         layout = new QGridLayout(this);
         layout->setSpacing(3); // smaller spacing so title and category are closer
@@ -84,6 +104,17 @@ public:
         QFont timerFont = boldFont;
         timerFont.setPointSize(boldFont.pointSize() * 2);
 
+        // Cache colors from settings with sensible fallbacks
+        headingColor            = QString::fromStdString(settings.heading_color.empty()                 ? "#FFFFFF" : settings.heading_color);
+        totalTimerIdleColor     = QString::fromStdString(settings.total_timer_idle_color.empty()        ? "green"   : settings.total_timer_idle_color);
+        totalTimerActiveColor   = QString::fromStdString(settings.total_timer_active_color.empty()      ? "#39FF14" : settings.total_timer_active_color);
+        segmentTimerIdleColor   = QString::fromStdString(settings.segment_timer_idle_color.empty()      ? "#4169E1" : settings.segment_timer_idle_color);
+        segmentTimerActiveColor = QString::fromStdString(settings.segment_timer_active_color.empty()    ? "#00BFFF" : settings.segment_timer_active_color);
+        splitsMapsColor         = QString::fromStdString(settings.splits_maps_color.empty()             ? "#FFFFFF" : settings.splits_maps_color);
+        splitsTimesColor        = QString::fromStdString(settings.splits_times_color.empty()            ? "#FFFFFF" : settings.splits_times_color);
+        totalLabelColor         = QString::fromStdString(settings.total_color.empty()                   ? "#FFD700" : settings.total_color);
+        totalValueColor         = QString::fromStdString(settings.total_time_color.empty()              ? "#FFD700" : settings.total_time_color);
+
         // Top group: keep title and category together so resizing won't separate them
         QWidget* topGroup = new QWidget(this);
         // Prevent the top group from being vertically stretched
@@ -94,14 +125,15 @@ public:
 
         QLabel* gameTitleLabel = new QLabel("S.T.A.L.K.E.R.: Shadow of Chernobyl", topGroup);
         gameTitleLabel->setFont(boldFont);
-        gameTitleLabel->setStyleSheet("QLabel { color: white; }");
+        gameTitleLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(headingColor));
         gameTitleLabel->setAlignment(Qt::AlignHCenter);
         topV->addWidget(gameTitleLabel);
 
         QString categoryText = settings.category.empty() ? "-" : QString::fromStdString(settings.category);
         QLabel* categoryLabel = new QLabel(categoryText, topGroup);
         categoryLabel->setFont(boldFont);
-        categoryLabel->setStyleSheet("QLabel { color: white; }");
+        // heading shall affect both game title and category
+        categoryLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(headingColor));
         categoryLabel->setAlignment(Qt::AlignHCenter);
         topV->addWidget(categoryLabel);
 
@@ -115,7 +147,7 @@ public:
         // Total time label (row 3 now) - larger and right-centered
         totalTimeLabel = new QLabel("0:00.0", this);
         totalTimeLabel->setFont(timerFont);
-        totalTimeLabel->setStyleSheet("QLabel { color: green; }");
+        totalTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(totalTimerIdleColor));
         totalTimeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         layout->addWidget(totalTimeLabel, 3, 0, 1, 2);
 
@@ -124,7 +156,7 @@ public:
             // Segment timer: larger and right-centered to match total timer
             segmentTimeLabel = new QLabel("0:00.0", this);
             segmentTimeLabel->setFont(timerFont);
-            segmentTimeLabel->setStyleSheet("QLabel { color: #87CEEB; }");
+            segmentTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(segmentTimerIdleColor));
             segmentTimeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
             layout->addWidget(segmentTimeLabel, 4, 0, 1, 2);
         } else {
@@ -142,13 +174,13 @@ public:
             for (size_t i = 0; i < visibleCount; ++i) {
                 QLabel* nameLabel = new QLabel(QString::fromStdString(immutableSplits[i].first), this);
                 nameLabel->setFont(boldFont);
-                nameLabel->setStyleSheet("QLabel { color: white; }");
+                nameLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(splitsMapsColor));
                 layout->addWidget(nameLabel, startRow + static_cast<int>(i), 0);
                 splitNameLabels.push_back(nameLabel);
 
                 QLabel* timeLabel = new QLabel(QString::fromStdString(immutableSplits[i].second), this);
                 timeLabel->setFont(boldFont);
-                timeLabel->setStyleSheet("QLabel { color: white; }");
+                timeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(splitsTimesColor));
                 timeLabel->setAlignment(Qt::AlignRight);
                 layout->addWidget(timeLabel, startRow + static_cast<int>(i), 1);
                 splitTimeLabels.push_back(timeLabel);
@@ -171,23 +203,60 @@ public:
         int totalRow = spacerRow + 1;
         totalLabel = new QLabel("Total:", this);
         totalLabel->setFont(boldFont);
-        totalLabel->setStyleSheet("QLabel { color: #FFD700; }");
+        totalLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(totalLabelColor));
         totalLabel->setAlignment(Qt::AlignLeft);
         layout->addWidget(totalLabel, totalRow, 0);
 
         totalValueLabel = new QLabel("", this);
         totalValueLabel->setFont(boldFont);
-        totalValueLabel->setStyleSheet("QLabel { color: #FFD700; }");
+        totalValueLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(totalValueColor));
         totalValueLabel->setAlignment(Qt::AlignRight);
         layout->addWidget(totalValueLabel, totalRow, 1);
+
+        // Prevent extra height from being distributed across split rows
+        for (int r = 0; r <= totalRow; ++r) {
+            layout->setRowStretch(r, 0);
+        }
+        // Add a single expanding spacer row to absorb leftover space
+        layout->addItem(new QSpacerItem(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding), totalRow + 1, 0, 1, 2);
+        layout->setRowStretch(totalRow + 1, 1);
 
         setLayout(layout);
         setWindowTitle("nxTimer - S.T.A.L.K.E.R. SoC");
 
         // Hardlock the window size
-        setFixedSize(340, 600);
+        setFixedSize(340, 550);
 
-        setStyleSheet("QWidget { background-color: black; }");
+        // Remove solid background so the image is visible
+        setStyleSheet("");
+
+        // Load background.png from executable directory and crop to 340x550 aspect ratio
+        const QString bgPath = QCoreApplication::applicationDirPath() + "/background.png";
+        if (QFileInfo::exists(bgPath)) {
+            QPixmap src(bgPath);
+            if (!src.isNull()) {
+                const double targetAspect = 340.0 / 550.0;
+                const int sw = src.width();
+                const int sh = src.height();
+                const double srcAspect = static_cast<double>(sw) / static_cast<double>(sh);
+
+                QRect cropRect;
+                if (srcAspect > targetAspect) {
+                    // Too wide: crop width
+                    int newW = static_cast<int>(sh * targetAspect);
+                    int x = (sw - newW) / 2;
+                    cropRect = QRect(x, 0, newW, sh);
+                } else {
+                    // Too tall: crop height
+                    int newH = static_cast<int>(sw / targetAspect);
+                    int y = (sh - newH) / 2;
+                    cropRect = QRect(0, y, sw, newH);
+                }
+
+                backgroundPixmap = src.copy(cropRect);
+                backgroundLoaded = true;
+            }
+        }
 
         // Setup 10Hz refresh timer (100ms intervals)
         refreshTimer = new QTimer(this);
@@ -247,6 +316,15 @@ protected:
         contextMenu.exec(event->globalPos());
     }
 
+    void paintEvent(QPaintEvent* event) override {
+        QPainter painter(this);
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        if (backgroundLoaded) {
+            painter.drawPixmap(rect(), backgroundPixmap);
+        }
+        QWidget::paintEvent(event);
+    }
+
 private:
     // Rebuild all visible split labels from the current windowStart
     void rebuildSplitLabels() {
@@ -285,9 +363,9 @@ private:
         // Update total time display
         totalTimeLabel->setText(formatTime(totalTime, 1));
         if (isRunning && !isPaused) {
-            totalTimeLabel->setStyleSheet("QLabel { color: #39FF14; }");
+            totalTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(totalTimerActiveColor));
         } else {
-            totalTimeLabel->setStyleSheet("QLabel { color: green; }");
+            totalTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(totalTimerIdleColor));
         }
 
         // Update segment time display
@@ -295,9 +373,9 @@ private:
             double segmentTime = totalTime - lastSplitTime;
             segmentTimeLabel->setText(formatTime(segmentTime, 1));
             if (isRunning && !isPaused) {
-                segmentTimeLabel->setStyleSheet("QLabel { color: #00BFFF; }");
+                segmentTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(segmentTimerActiveColor));
             } else {
-                segmentTimeLabel->setStyleSheet("QLabel { color: #4169E1; }");
+                segmentTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(segmentTimerIdleColor));
             }
         }
 

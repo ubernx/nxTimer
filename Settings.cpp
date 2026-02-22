@@ -10,11 +10,12 @@ module;
 //#include <iostream>
 #include <algorithm>
 #include <cctype>
+#include <regex>
 
 export module Settings;
 
 const std::string SETTINGS_NOT_FOUND    = "Settings file not found or invalid settings format, using defaults...\n";
-const std::string DEFAULT_SETTINGS      = "category: Default Settings;segment_time: ON;show_splits: OFF;splits_total: OFF;timer_start_split: F9;timer_reset: F8;timer_skip: F10;timer_undo: F11;splits_table: [];";
+const std::string DEFAULT_SETTINGS      = "heading_color: #FFFFFF; total_timer_idle_color: #006400; total_timer_active_color: #39FF14; segment_timer_idle_color: #4169E1; segment_timer_active_color: #00BFFF; splits_maps_color: #FFFFFF; splits_times_color: #FFFFFF; total_color: #FFD700; total_time_color: #FFD700;category: Default Settings;segment_time: ON;show_splits: OFF;splits_total: OFF;timer_start_split: F9;timer_reset: F8;timer_skip: F10;timer_undo: F11;splits_table: [];";
 
 // NEVER WRITE THIS DIRECTLY DUE TO UB, SINCE MULTIPLE THREADS WILL ACCESS THIS
 export struct Settings_s {
@@ -29,6 +30,20 @@ export struct Settings_s {
     WORD    timer_undo          = VK_F11;
 
     std::string category = "";
+
+    std::string heading_color = "";
+
+    std::string total_timer_idle_color      = "";
+    std::string total_timer_active_color    = "";
+
+    std::string segment_timer_idle_color    = "";
+    std::string segment_timer_active_color  = "";
+
+    std::string splits_maps_color   = "";
+    std::string splits_times_color  = "";
+
+    std::string total_color         = "";
+    std::string total_time_color    = "";
 
     std::vector<std::pair<std::string, std::string>> splits = {{"", ""}};
 
@@ -97,6 +112,13 @@ std::string trim(std::string s) {
     s.erase(std::find_if(s.rbegin(), s.rend(),
         [](unsigned char ch) { return !std::isspace(ch); }).base(), s.end());
     return s;
+
+}
+
+bool isValidHexColor(const std::string& color) {
+
+    static const std::regex pattern("^#[0-9A-Fa-f]{6}$");
+    return std::regex_match(color, pattern);
 
 }
 
@@ -225,6 +247,51 @@ export void setupSettings(std::string settingsStr) {
             } else if (key == "category") {
 
                 settings.category = value;
+
+            } else if (key == "heading_color") {
+
+                if (isValidHexColor(value)) settings.heading_color = value;
+                else validSettings = false;
+
+            } else if (key == "total_timer_idle_color") {
+
+                if (isValidHexColor(value)) settings.total_timer_idle_color = value;
+                else validSettings = false;
+
+            } else if (key == "total_timer_active_color") {
+
+                if (isValidHexColor(value)) settings.total_timer_active_color = value;
+                else validSettings = false;
+
+            } else if (key == "segment_timer_idle_color") {
+
+                if (isValidHexColor(value)) settings.segment_timer_idle_color = value;
+                else validSettings = false;
+
+            } else if (key == "segment_timer_active_color") {
+
+                if (isValidHexColor(value)) settings.segment_timer_active_color = value;
+                else validSettings = false;
+
+            } else if (key == "splits_maps_color") {
+
+                if (isValidHexColor(value)) settings.splits_maps_color = value;
+                else validSettings = false;
+
+            } else if (key == "splits_times_color") {
+
+                if (isValidHexColor(value)) settings.splits_times_color = value;
+                else validSettings = false;
+
+            } else if (key == "total_color") {
+
+                if (isValidHexColor(value)) settings.total_color = value;
+                else validSettings = false;
+
+            } else if (key == "total_time_color") {
+
+                if (isValidHexColor(value)) settings.total_time_color = value;
+                else validSettings = false;
 
             } else validSettings = false;
 
