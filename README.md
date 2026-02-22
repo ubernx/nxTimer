@@ -8,6 +8,17 @@ You can customize the timer's behavior by modifying the `Settings.txt` file.
 
 ### Settings Parameters
 
+- **colors (9 `_color` parameters)**: Each parameter accepts a hexadecimal color value (#RRGGBB). Example: `heading_color: #FFFFFF;`. The available parameters are:
+  - `heading_color`
+  - `total_timer_idle_color`
+  - `total_timer_active_color`
+  - `segment_timer_idle_color`
+  - `segment_timer_active_color`
+  - `splits_maps_color`
+  - `splits_times_color`
+  - `total_color`
+  - `total_time_color`
+
 - **category**: Allows you to modify and display a brief description of the run category.
   - *Example:* `category: Any% (Novice, 1.0000);`
 - **segment_time (ON/OFF)**: Enables or disables an additional timer that resets on every split action.
