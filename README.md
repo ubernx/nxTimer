@@ -28,6 +28,9 @@ You can customize the timer's behavior by modifying the `Settings.txt` file.
   - `ON`: Timestamps are displayed in **absolute** format.
   - `OFF`: Timestamps are displayed in **relative** format.
 
+- **two_decimal_points (ON/OFF)**: Enables or disables projection of timers in two decimal points precision.
+  - *Example:* `two_decimal_points: ON;`
+
 ### Controls
 
 Four timer control keys are fully customizable:

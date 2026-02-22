@@ -15,7 +15,7 @@ module;
 export module Settings;
 
 const std::string SETTINGS_NOT_FOUND    = "Settings file not found or invalid settings format, using defaults...\n";
-const std::string DEFAULT_SETTINGS      = "heading_color: #FFFFFF; total_timer_idle_color: #006400; total_timer_active_color: #39FF14; segment_timer_idle_color: #4169E1; segment_timer_active_color: #00BFFF; splits_maps_color: #FFFFFF; splits_times_color: #FFFFFF; total_color: #FFD700; total_time_color: #FFD700;category: Default Settings;segment_time: ON;show_splits: OFF;splits_total: OFF;timer_start_split: F9;timer_reset: F8;timer_skip: F10;timer_undo: F11;splits_table: [];";
+const std::string DEFAULT_SETTINGS      = "heading_color: #FFFFFF; total_timer_idle_color: #006400; total_timer_active_color: #39FF14; segment_timer_idle_color: #4169E1; segment_timer_active_color: #00BFFF; splits_maps_color: #FFFFFF; splits_times_color: #FFFFFF; total_color: #FFD700; total_time_color: #FFD700;category: Default Settings;segment_time: ON;show_splits: OFF;splits_total: OFF;two_decimal_points: OFF;timer_start_split: F9;timer_reset: F8;timer_skip: F10;timer_undo: F11;splits_table: [];";
 
 // NEVER WRITE THIS DIRECTLY DUE TO UB, SINCE MULTIPLE THREADS WILL ACCESS THIS
 export struct Settings_s {
@@ -23,6 +23,7 @@ export struct Settings_s {
     bool    segment_time        = true;
     bool    show_splits         = false;
     bool    splits_total        = false;
+    bool    two_decimal_points  = false;
 
     WORD    timer_start_split   = VK_F9;
     WORD    timer_reset         = VK_F8;
@@ -223,6 +224,10 @@ export void setupSettings(std::string settingsStr) {
             } else if (key == "splits_total") {
 
                 settings.splits_total = (value == "ON");
+
+            } else if (key == "two_decimal_points") {
+
+                settings.two_decimal_points = (value == "ON");
 
             } else if (key == "timer_start_split") {
 

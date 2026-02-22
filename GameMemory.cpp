@@ -32,23 +32,7 @@ struct DeepPointer {
         }
     }
 
-    // LiveSplit-style: add offset then deref all but last (kept consistent)
-    uintptr_t resolveLiveSplit(HANDLE hProcess) const {
-        uintptr_t addr = base;
-        for (size_t i = 0; i < offsets.size(); ++i) {
-            addr += offsets[i];
-            if (i + 1 < offsets.size()) {
-                uintptr_t tmp = 0;
-                if (!readTargetPtr(hProcess, addr, tmp)) {
-                    return 0;
-                }
-                addr = tmp;
-            }
-        }
-        return addr;
-    }
-
-    // New strategy: dereference current address first, then add offset
+    // dereference current address first, then add offset
     uintptr_t resolveDerefFirst(HANDLE hProcess) const {
         uintptr_t addr = base;
         for (size_t i = 0; i < offsets.size(); ++i) {
@@ -61,49 +45,22 @@ struct DeepPointer {
         return addr;
     }
 
-    // Existing: add offset, dereference all but last (using readTargetPtr)
-    uintptr_t resolve(HANDLE hProcess) const {
-        uintptr_t addr = base;
-        for (size_t i = 0; i < offsets.size(); ++i) {
-            addr += offsets[i];
-            if (i + 1 < offsets.size()) {
-                uintptr_t tmp = 0;
-                if (!readTargetPtr(hProcess, addr, tmp)) {
-                    return 0;
-                }
-                addr = tmp;
-            }
-        }
-        return addr;
-    }
-
-
-
     // Read raw bytes at resolved address.
     bool resolveBytes(HANDLE hProcess, void* out, size_t len) const {
         if (!out || len == 0) return false;
 
-        struct Candidate { uintptr_t addr; const char* name; };
-        Candidate cands[3];
+        uintptr_t addr = resolveDerefFirst(hProcess);
 
-        cands[0].addr = resolve(hProcess);            cands[0].name = "resolve(add-then-deref)";
-        cands[1].addr = resolveLiveSplit(hProcess);  cands[1].name = "resolveLiveSplit";
-        cands[2].addr = resolveDerefFirst(hProcess); cands[2].name = "resolveDerefFirst";
-
-        for (const auto& c : cands) {
-            if (!c.addr) continue;
-
-            if (ReadProcessMemory(hProcess, reinterpret_cast<LPCVOID>(c.addr), out, len, nullptr)) {
+            if (ReadProcessMemory(hProcess, reinterpret_cast<LPCVOID>(addr), out, len, nullptr))
                 return true;
-            }
+
 
             uintptr_t ptr = 0;
-            if (readTargetPtr(hProcess, c.addr, ptr) && ptr) {
-                if (ReadProcessMemory(hProcess, reinterpret_cast<LPCVOID>(ptr), out, len, nullptr)) {
+            if (readTargetPtr(hProcess, addr, ptr) && ptr) {
+                if (ReadProcessMemory(hProcess, reinterpret_cast<LPCVOID>(ptr), out, len, nullptr))
                     return true;
-                }
+
             }
-        }
 
         return false;
     }
@@ -258,19 +215,6 @@ export void readGameMemorySnapshot() {
             std::memcpy(&snapShotCurrent.globalTimer,
                         block + versionOffsets.offGlobal,
                         sizeof(snapShotCurrent.globalTimer));
-        } else {
-            // Fallback to individual reads if bulk RPM fails
-            ReadProcessMemory(gameAddresses.hProcess, reinterpret_cast<LPCVOID>(versionOffsets.isPaused),
-                &snapShotCurrent.isPaused, sizeof(snapShotCurrent.isPaused), nullptr);
-
-            ReadProcessMemory(gameAddresses.hProcess, reinterpret_cast<LPCVOID>(versionOffsets.sync),
-                &snapShotCurrent.sync, sizeof(snapShotCurrent.sync), nullptr);
-
-            ReadProcessMemory(gameAddresses.hProcess, reinterpret_cast<LPCVOID>(versionOffsets.globalTimer),
-                &snapShotCurrent.globalTimer, sizeof(snapShotCurrent.globalTimer), nullptr);
-
-            ReadProcessMemory(gameAddresses.hProcess, reinterpret_cast<LPCVOID>(versionOffsets.focusState),
-                &snapShotCurrent.focusState, sizeof(snapShotCurrent.focusState), nullptr);
         }
     }
 

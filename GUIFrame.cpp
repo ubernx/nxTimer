@@ -57,6 +57,10 @@ private:
     QTimer* refreshTimer;
     QFont boldFont;
 
+    // Precision and gui interval controlled by settings.two_decimal_points
+    int mainTimerPrecision = 1; // 1 or 2 decimal places for big timers
+    int refreshIntervalMs = 100; // 100ms (10Hz) or 50ms (20Hz)
+
     // Split management
     std::vector<std::pair<std::string, std::string>> immutableSplits;
 
@@ -99,6 +103,15 @@ public:
         layout->setContentsMargins(10, 10, 10, 10);
 
         boldFont = QFont("Segoe UI", 14, QFont::Bold);
+
+        // Choose precision and GUI refresh interval based on settings.two_decimal_points
+        if (settings.two_decimal_points) {
+            mainTimerPrecision = 2;
+            refreshIntervalMs = 50; // 20 Hz
+        } else {
+            mainTimerPrecision = 1;
+            refreshIntervalMs = 100; // 10 Hz
+        }
 
         // Timer font: double the size of the base bold font for the two main timers
         QFont timerFont = boldFont;
@@ -145,7 +158,7 @@ public:
         layout->addWidget(spacerCatTotal, 2, 0, 1, 2);
 
         // Total time label (row 3 now) - larger and right-centered
-        totalTimeLabel = new QLabel("0:00.0", this);
+        totalTimeLabel = new QLabel(formatTime(0.0, mainTimerPrecision), this);
         totalTimeLabel->setFont(timerFont);
         totalTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(totalTimerIdleColor));
         totalTimeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -154,7 +167,7 @@ public:
         // Segment time label (row 4 now)
         if (settings.segment_time) {
             // Segment timer: larger and right-centered to match total timer
-            segmentTimeLabel = new QLabel("0:00.0", this);
+            segmentTimeLabel = new QLabel(formatTime(0.0, mainTimerPrecision), this);
             segmentTimeLabel->setFont(timerFont);
             segmentTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(segmentTimerIdleColor));
             segmentTimeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -261,7 +274,7 @@ public:
         // Setup 10Hz refresh timer (100ms intervals)
         refreshTimer = new QTimer(this);
         connect(refreshTimer, &QTimer::timeout, this, &GridWidget::updateDisplay);
-        refreshTimer->start(100);
+        refreshTimer->start(refreshIntervalMs);
     }
 
 protected:
@@ -361,7 +374,7 @@ private:
         size_t currentSplitIndex = timerState.currentSplitIndex.load();
 
         // Update total time display
-        totalTimeLabel->setText(formatTime(totalTime, 1));
+        totalTimeLabel->setText(formatTime(totalTime, mainTimerPrecision));
         if (isRunning && !isPaused) {
             totalTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(totalTimerActiveColor));
         } else {
@@ -371,7 +384,7 @@ private:
         // Update segment time display
         if (segmentTimeLabel) {
             double segmentTime = totalTime - lastSplitTime;
-            segmentTimeLabel->setText(formatTime(segmentTime, 1));
+            segmentTimeLabel->setText(formatTime(segmentTime, mainTimerPrecision));
             if (isRunning && !isPaused) {
                 segmentTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(segmentTimerActiveColor));
             } else {
@@ -455,3 +468,4 @@ private:
         }
     }
 };
+
