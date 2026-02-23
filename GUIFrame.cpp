@@ -18,6 +18,8 @@ module;
 #include <QPainter>
 #include <QCoreApplication>
 #include <QFileInfo>
+#include <limits>
+#include <QFontMetrics>
 
 export module GUIFrame;
 
@@ -25,22 +27,84 @@ import TimerWorker;
 import Settings;
 
 static QString formatTime(double seconds, int precision) {
-    int totalSeconds = static_cast<int>(seconds);
+    const double factor = std::pow(10.0, precision);
+    const double truncated = std::floor(seconds * factor) / factor;
+    int totalSeconds = static_cast<int>(truncated);
     int minutes = totalSeconds / 60;
     int secs = totalSeconds % 60;
-    double fractional = seconds - totalSeconds;
+    double fractional = truncated - totalSeconds;
 
-    // Truncate instead of round to avoid the displayed value being higher than actual
-    double truncatedFractional = fractional;
-    if (precision == 1) {
-        truncatedFractional = std::floor(fractional * 10.0) / 10.0;
-    }
-
-    QString fractStr = QString::number(truncatedFractional, 'f', precision).mid(1); // Skip leading "0"
+    QString fractStr = QString::number(fractional, 'f', precision).mid(1); // Skip leading "0"
     return QString("%1:%2%3")
         .arg(minutes)
         .arg(secs, 2, 10, QChar('0'))
         .arg(fractStr);
+}
+
+static double truncateSeconds(double seconds, int precision) {
+    if (precision <= 0) return std::floor(seconds);
+    const double factor = std::pow(10.0, precision);
+    return std::floor(seconds * factor) / factor;
+}
+
+static QString formatTimeCompactLeadingZero(double seconds, int precision) {
+    const double absSeconds = std::abs(seconds);
+    if (absSeconds < 60.0) {
+        const double t = truncateSeconds(absSeconds, precision);
+        return QString::number(t, 'f', precision); // keeps leading zero (e.g., 0.0 / 0.00 / 0.000)
+    }
+    return formatTime(truncateSeconds(absSeconds, precision), precision);
+}
+
+static QString formatDelta(double seconds, int precision) {
+    const double absSeconds = std::abs(seconds);
+    const QString sign = (seconds < 0.0) ? "-" : "+";
+    return sign + formatTime(absSeconds, precision);
+}
+
+static QString formatDeltaCompact(double seconds, int precision) {
+    const double absSeconds = std::abs(seconds);
+    QString core;
+    if (absSeconds < 60.0) {
+        const double t = truncateSeconds(absSeconds, precision);
+        core = QString::number(t, 'f', precision);
+        if (absSeconds < 10.0) {
+            if (core.startsWith("0")) core.remove(0, 1); // remove leading zero before decimal
+            while (core.endsWith("0")) core.chop(1);     // trim trailing zeros
+            if (core.endsWith(".")) core.chop(1);        // trim dangling dot
+        }
+    } else {
+        core = formatTime(truncateSeconds(absSeconds, precision), precision);
+    }
+    const QString sign = (seconds < 0.0) ? "-" : "+";
+    return sign + core;
+}
+
+static std::string trimString(const std::string& s) {
+    const auto start = s.find_first_not_of(" \t");
+    if (start == std::string::npos) return {};
+    const auto end = s.find_last_not_of(" \t");
+    return s.substr(start, end - start + 1);
+}
+
+static bool tryParseTime(const std::string& s, double& outSeconds) {
+    const std::string t = trimString(s);
+    if (t.empty() || t == "-") return false;
+    try {
+        const auto colonPos = t.find(':');
+        if (colonPos == std::string::npos) {
+            outSeconds = std::stod(t);
+            return true;
+        }
+        const std::string minStr = t.substr(0, colonPos);
+        const std::string secStr = t.substr(colonPos + 1);
+        const double minutes = std::stod(minStr);
+        const double seconds = std::stod(secStr);
+        outSeconds = minutes * 60.0 + seconds;
+        return true;
+    } catch (...) {
+        return false;
+    }
 }
 
 export class GridWidget : public QWidget {
@@ -63,6 +127,7 @@ private:
 
     // Split management
     std::vector<std::pair<std::string, std::string>> immutableSplits;
+    std::vector<double> defaultSplitTimes;
 
     // Tracking state
     size_t lastObservedSplitIndex = 0;
@@ -101,8 +166,14 @@ public:
         layout = new QGridLayout(this);
         layout->setSpacing(3); // smaller spacing so title and category are closer
         layout->setContentsMargins(10, 10, 10, 10);
+        layout->setColumnStretch(0, 0);
+        layout->setColumnStretch(1, 1);
 
         boldFont = QFont("Segoe UI", 14, QFont::Bold);
+
+        // Create a smaller font for split rows (33% smaller than boldFont)
+        QFont splitsFont = boldFont;
+        splitsFont.setPointSizeF(boldFont.pointSizeF() * (8.5 / 10.0));
 
         // Choose precision and GUI refresh interval based on settings.two_decimal_points
         if (settings.two_decimal_points) {
@@ -158,7 +229,7 @@ public:
         layout->addWidget(spacerCatTotal, 2, 0, 1, 2);
 
         // Total time label (row 3 now) - larger and right-centered
-        totalTimeLabel = new QLabel(formatTime(0.0, mainTimerPrecision), this);
+        totalTimeLabel = new QLabel(formatTimeCompactLeadingZero(0.0, mainTimerPrecision), this);
         totalTimeLabel->setFont(timerFont);
         totalTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(totalTimerIdleColor));
         totalTimeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -167,7 +238,7 @@ public:
         // Segment time label (row 4 now)
         if (settings.segment_time) {
             // Segment timer: larger and right-centered to match total timer
-            segmentTimeLabel = new QLabel(formatTime(0.0, mainTimerPrecision), this);
+            segmentTimeLabel = new QLabel(formatTimeCompactLeadingZero(0.0, mainTimerPrecision), this);
             segmentTimeLabel->setFont(timerFont);
             segmentTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(segmentTimerIdleColor));
             segmentTimeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -178,6 +249,16 @@ public:
 
         // Copy splits into immutable storage
         immutableSplits = settings.splits;
+        defaultSplitTimes.clear();
+        defaultSplitTimes.reserve(immutableSplits.size());
+        for (const auto& split : immutableSplits) {
+            double seconds = 0.0;
+            if (tryParseTime(split.second, seconds)) {
+                defaultSplitTimes.push_back(seconds);
+            } else {
+                defaultSplitTimes.push_back(std::numeric_limits<double>::quiet_NaN());
+            }
+        }
 
         // Initialize splits table if enabled (startRow shifted to leave spacer after segment)
         int startRow = (settings.segment_time ? 6 : 4);
@@ -186,15 +267,22 @@ public:
             visibleCount = std::min(immutableSplits.size(), WINDOW_SIZE);
             for (size_t i = 0; i < visibleCount; ++i) {
                 QLabel* nameLabel = new QLabel(QString::fromStdString(immutableSplits[i].first), this);
-                nameLabel->setFont(boldFont);
+                nameLabel->setFont(splitsFont);
                 nameLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(splitsMapsColor));
                 layout->addWidget(nameLabel, startRow + static_cast<int>(i), 0);
                 splitNameLabels.push_back(nameLabel);
 
-                QLabel* timeLabel = new QLabel(QString::fromStdString(immutableSplits[i].second), this);
-                timeLabel->setFont(boldFont);
+                QString defaultText = QString::fromStdString(immutableSplits[i].second);
+                if (i < defaultSplitTimes.size() && std::isfinite(defaultSplitTimes[i])) {
+                    defaultText = formatTimeCompactLeadingZero(defaultSplitTimes[i], 3);
+                }
+                QLabel* timeLabel = new QLabel(this);
+                timeLabel->setFont(splitsFont);
                 timeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(splitsTimesColor));
                 timeLabel->setAlignment(Qt::AlignRight);
+                timeLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+                timeLabel->setTextFormat(Qt::RichText);
+                timeLabel->setText(buildSplitTimeHtml(splitsFont, defaultText, false, "", ""));
                 layout->addWidget(timeLabel, startRow + static_cast<int>(i), 1);
                 splitTimeLabels.push_back(timeLabel);
             }
@@ -238,7 +326,7 @@ public:
         setWindowTitle("nxTimer - S.T.A.L.K.E.R. SoC");
 
         // Hardlock the window size
-        setFixedSize(340, 550);
+        setFixedSize(400, 500);
 
         // Remove solid background so the image is visible
         setStyleSheet("");
@@ -248,7 +336,7 @@ public:
         if (QFileInfo::exists(bgPath)) {
             QPixmap src(bgPath);
             if (!src.isNull()) {
-                const double targetAspect = 340.0 / 550.0;
+                const double targetAspect = 400.0 / 500.0;
                 const int sw = src.width();
                 const int sh = src.height();
                 const double srcAspect = static_cast<double>(sw) / static_cast<double>(sh);
@@ -339,6 +427,47 @@ protected:
     }
 
 private:
+    void setSplitTimeLabel(size_t splitIdx, double displayTime) {
+        if (splitIdx < windowStart) return;
+        const size_t labelIdx = splitIdx - windowStart;
+        if (labelIdx >= splitTimeLabels.size()) return;
+
+        QLabel* label = splitTimeLabels[labelIdx];
+        QString text = formatTimeCompactLeadingZero(displayTime, 3);
+
+        if (splitIdx < defaultSplitTimes.size() && std::isfinite(defaultSplitTimes[splitIdx])) {
+            const double delta = displayTime - defaultSplitTimes[splitIdx];
+            const QString deltaStr = formatDeltaCompact(delta, 3);
+            const QString color = (delta < 0.0) ? "#00FF00" : "#FF0000";
+            text = buildSplitTimeHtml(label->font(), text, true, deltaStr, color);
+            label->setTextFormat(Qt::RichText);
+        } else {
+            label->setTextFormat(Qt::RichText);
+            text = buildSplitTimeHtml(label->font(), text, false, "", "");
+        }
+
+        label->setText(text);
+    }
+
+    static QString buildSplitTimeHtml(const QFont& font, const QString& timeText, bool hasDelta, const QString& deltaStr, const QString& color) {
+        const QFontMetrics fm(font);
+        const int timeWidth = fm.horizontalAdvance("0:00.000");
+        const int gapWidth = fm.horizontalAdvance("  ");
+        const int deltaWidth = fm.horizontalAdvance("(-0:00.000)");
+        const QString deltaCell = hasDelta
+            ? QString("<span style=\"color:%1;\">(%2)</span>").arg(color, deltaStr)
+            : QString("&nbsp;");
+        return QString(
+            "<div align=\"right\">"
+            "<table cellpadding=\"0\" cellspacing=\"0\"><tr>"
+            "<td width=\"%1\" align=\"right\">%2</td>"
+            "<td width=\"%3\"></td>"
+            "<td width=\"%4\" align=\"right\">%5</td>"
+            "</tr></table>"
+            "</div>"
+        ).arg(deltaWidth).arg(deltaCell).arg(gapWidth).arg(timeWidth).arg(timeText);
+    }
+
     // Rebuild all visible split labels from the current windowStart
     void rebuildSplitLabels() {
         size_t visibleCount = splitNameLabels.size();
@@ -359,9 +488,14 @@ private:
                     double prevTime = (splitIdx > 0) ? completedSplitTimes[splitIdx - 1] : 0.0;
                     displayTime = completedTime - prevTime;
                 }
-                splitTimeLabels[i]->setText(formatTime(displayTime, 3));
+                setSplitTimeLabel(splitIdx, displayTime);
             } else {
-                splitTimeLabels[i]->setText(QString::fromStdString(immutableSplits[splitIdx].second));
+                splitTimeLabels[i]->setTextFormat(Qt::RichText);
+                QString defaultText = QString::fromStdString(immutableSplits[splitIdx].second);
+                if (splitIdx < defaultSplitTimes.size() && std::isfinite(defaultSplitTimes[splitIdx])) {
+                    defaultText = formatTimeCompactLeadingZero(defaultSplitTimes[splitIdx], 3);
+                }
+                splitTimeLabels[i]->setText(buildSplitTimeHtml(splitTimeLabels[i]->font(), defaultText, false, "", ""));
             }
         }
     }
@@ -374,7 +508,7 @@ private:
         size_t currentSplitIndex = timerState.currentSplitIndex.load();
 
         // Update total time display
-        totalTimeLabel->setText(formatTime(totalTime, mainTimerPrecision));
+        totalTimeLabel->setText(formatTimeCompactLeadingZero(totalTime, mainTimerPrecision));
         if (isRunning && !isPaused) {
             totalTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(totalTimerActiveColor));
         } else {
@@ -384,7 +518,7 @@ private:
         // Update segment time display
         if (segmentTimeLabel) {
             double segmentTime = totalTime - lastSplitTime;
-            segmentTimeLabel->setText(formatTime(segmentTime, mainTimerPrecision));
+            segmentTimeLabel->setText(formatTimeCompactLeadingZero(segmentTime, mainTimerPrecision));
             if (isRunning && !isPaused) {
                 segmentTimeLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(segmentTimerActiveColor));
             } else {
@@ -395,7 +529,7 @@ private:
         // Update Total label visibility
         if (totalValueLabel) {
             if (displayTotal) {
-                totalValueLabel->setText(formatTime(totalTime, 3));
+                totalValueLabel->setText(formatTimeCompactLeadingZero(totalTime, 3));
             } else {
                 totalValueLabel->setText("");
             }
@@ -452,7 +586,7 @@ private:
                 } else {
                     displayTime = totalTime - lastSplitTime;
                 }
-                splitTimeLabels[labelIdx]->setText(formatTime(displayTime, 3));
+                setSplitTimeLabel(lastObservedSplitIndex, displayTime);
             }
 
             lastSplitTime = totalTime;
